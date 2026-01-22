@@ -29,13 +29,31 @@ Implementation of a single artificial neuron with various activation functions a
 - Color-coded class labels (blue for class 0, red for class 1)
 - Decision boundary visualization with background colors for two half-planes
 - Training controls and status display
+- Training error visualization over time
+- Input validation and error handling
 
 ## Usage
 
 ### Running the Application
 
+First, activate your virtual environment and install dependencies:
+
 ```bash
-python gui.py
+# Windows PowerShell
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+
+# Then run Streamlit
+streamlit run gui.py
+```
+
+Or if you prefer command line:
+
+```bash
+# Windows CMD
+venv\Scripts\activate.bat
+pip install -r requirements.txt
+streamlit run gui.py
 ```
 
 ### Steps to Use
@@ -58,31 +76,40 @@ python gui.py
    - Click "Train Neuron"
 
 4. **Visualize**:
-   - The plot shows:
+   - Use the "Visualization" tab to see:
      - Blue circles: Class 0 samples
      - Red crosses: Class 1 samples
      - Light blue background: Class 0 region
      - Light coral background: Class 1 region
-     - Black dashed line: Decision boundary
+     - Black line: Decision boundary (only for linear activation functions)
+   - Use the "Training Error" tab to see the error curve over training epochs
 
 ## File Structure
 
 - `neuron.py` - Neuron class with all activation functions and training
 - `data_generator.py` - Data generation from Gaussian distributions
-- `gui.py` - GUI application with visualization
+- `gui.py` - Streamlit GUI application with visualization
+- `requirements.txt` - Python dependencies
 - `README.md` - This file
 
 ## Requirements
 
 - Python 3.7+
-- numpy
-- matplotlib
-- tkinter (usually included with Python)
+- numpy >= 1.20.0
+- matplotlib >= 3.3.0
+- streamlit >= 1.28.0
 
 ## Installation
 
 ```bash
-pip install numpy matplotlib
+# Create virtual environment (Windows)
+python -m venv venv
+.\venv\Scripts\Activate.ps1  # PowerShell
+# or
+venv\Scripts\activate.bat    # CMD
+
+# Install dependencies
+pip install -r requirements.txt
 ```
 
 ## Grading Criteria
@@ -93,7 +120,9 @@ pip install numpy matplotlib
 
 ## Notes
 
-- The decision boundary is linear (as expected for a single neuron)
-- For non-linear activation functions (sin, tanh), the threshold is applied to map outputs to class labels
+- The decision boundary is linear only for Heaviside and Sigmoid activation functions
+- For non-linear activation functions (sin, tanh, ReLU, etc.), the decision boundary is non-linear and only the background coloring is shown
+- For non-linear activation functions, the threshold is applied to map outputs to class labels
 - Training uses the delta rule with the derivative of the activation function
 - For Heaviside, the derivative is assumed to be 1 for training purposes
+- The GUI includes input validation and proper error handling with logging

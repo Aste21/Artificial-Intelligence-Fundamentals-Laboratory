@@ -35,27 +35,53 @@ class Neuron:
     - y is the predicted class label
     """
     
-    def __init__(self, input_dim: int, activation: ActivationFunction = ActivationFunction.SIGMOID, 
+    def __init__(self, input_dim: int, 
+                 training_activation: ActivationFunction = ActivationFunction.SIGMOID,
+                 evaluation_activation: Optional[ActivationFunction] = None,
                  learning_rate: float = 0.1, beta: float = 1.0):
         """
         Initialize the neuron.
         
         Args:
             input_dim: Number of input features (without bias)
-            activation: Activation function to use
+            training_activation: Activation function to use for training (Heaviside, Sigmoid, Sin, Tanh)
+            evaluation_activation: Activation function to use for evaluation/prediction (all functions)
+                                   If None, uses training_activation
             learning_rate: Initial learning rate (η)
             beta: Beta parameter for sigmoid function
         """
         # Weights include bias term (w_0 for bias, w_1...w_n for inputs)
         self.weights = np.random.uniform(-0.5, 0.5, size=input_dim + 1)
-        self.activation_type = activation
+        self.training_activation = training_activation
+        self.evaluation_activation = evaluation_activation if evaluation_activation is not None else training_activation
         self.learning_rate = learning_rate
         self.beta = beta
         self.leaky_relu_alpha = 0.01
+        self.input_dim = input_dim
         
-        # Get activation function and its derivative
-        self.activation_func = self._get_activation_function(activation)
-        self.activation_derivative = self._get_activation_derivative(activation)
+        # Validate training activation
+        valid_training_activations = [
+            ActivationFunction.HEAVISIDE,
+            ActivationFunction.SIGMOID,
+            ActivationFunction.SIN,
+            ActivationFunction.TANH
+        ]
+        if training_activation not in valid_training_activations:
+            raise ValueError(
+                f"Training activation must be one of: {[a.value for a in valid_training_activations]}. "
+                f"Got: {training_activation.value}"
+            )
+        
+        # Get activation functions and derivative for training
+        self.training_activation_func = self._get_activation_function(training_activation)
+        self.training_activation_derivative = self._get_activation_derivative(training_activation)
+        
+        # Get activation function for evaluation
+        self.evaluation_activation_func = self._get_activation_function(self.evaluation_activation)
+    
+    def reset_weights(self):
+        """Reset weights to random initial values."""
+        self.weights = np.random.uniform(-0.5, 0.5, size=self.input_dim + 1)
     
     def _get_activation_function(self, activation: ActivationFunction) -> Callable:
         """Get the activation function."""
@@ -82,7 +108,9 @@ class Neuron:
             # For Heaviside, derivative is assumed to be 1 for training
             return lambda s: np.ones_like(s)
         elif activation == ActivationFunction.SIGMOID:
-            return lambda s: self.beta * self.activation_func(s) * (1.0 - self.activation_func(s))
+            # Derivative of sigmoid: β * f(s) * (1 - f(s))
+            # where f(s) = 1 / (1 + exp(-β*s))
+            return lambda s: self.beta * (1.0 / (1.0 + np.exp(-self.beta * s))) * (1.0 - (1.0 / (1.0 + np.exp(-self.beta * s))))
         elif activation == ActivationFunction.SIN:
             return lambda s: np.cos(s)
         elif activation == ActivationFunction.TANH:
@@ -99,7 +127,7 @@ class Neuron:
     
     def predict(self, x: np.ndarray) -> np.ndarray:
         """
-        Predict class labels for input samples.
+        Predict class labels for input samples using evaluation activation function.
         
         Args:
             x: Input samples (n_samples, n_features)
@@ -116,29 +144,29 @@ class Neuron:
         # Compute weighted sum: s = w^T * x
         s = np.dot(x_with_bias, self.weights)
         
-        # Apply activation function
-        y = self.activation_func(s)
+        # Apply evaluation activation function
+        y = self.evaluation_activation_func(s)
         
         # For classification, map to [0, 1] class labels
-        if self.activation_type == ActivationFunction.HEAVISIDE:
+        if self.evaluation_activation == ActivationFunction.HEAVISIDE:
             # Already in [0, 1]
             return y
-        elif self.activation_type == ActivationFunction.SIGMOID:
+        elif self.evaluation_activation == ActivationFunction.SIGMOID:
             # Already in [0, 1], threshold at 0.5
             return (y >= 0.5).astype(float)
-        elif self.activation_type == ActivationFunction.TANH:
+        elif self.evaluation_activation == ActivationFunction.TANH:
             # Range [-1, 1], map to [0, 1] by thresholding at 0
             return (y >= 0).astype(float)
-        elif self.activation_type == ActivationFunction.SIN:
+        elif self.evaluation_activation == ActivationFunction.SIN:
             # Range [-1, 1], map to [0, 1] by thresholding at 0
             return (y >= 0).astype(float)
-        elif self.activation_type == ActivationFunction.SIGN:
+        elif self.evaluation_activation == ActivationFunction.SIGN:
             # Range [-1, 0, 1], map to [0, 1] by thresholding at 0
             return (y >= 0).astype(float)
-        elif self.activation_type == ActivationFunction.RELU:
+        elif self.evaluation_activation == ActivationFunction.RELU:
             # Range [0, inf), threshold at some small value or use > 0
             return (y > 0).astype(float)
-        elif self.activation_type == ActivationFunction.LEAKY_RELU:
+        elif self.evaluation_activation == ActivationFunction.LEAKY_RELU:
             # Range (-inf, inf), but mostly positive, threshold at 0
             return (y >= 0).astype(float)
         else:
@@ -147,7 +175,7 @@ class Neuron:
     
     def evaluate(self, x: np.ndarray) -> np.ndarray:
         """
-        Evaluate the neuron output (continuous values, not thresholded).
+        Evaluate the neuron output (continuous values, not thresholded) using evaluation activation function.
         
         Args:
             x: Input samples (n_samples, n_features)
@@ -160,7 +188,7 @@ class Neuron:
         
         x_with_bias = np.column_stack([np.ones(x.shape[0]), x])
         s = np.dot(x_with_bias, self.weights)
-        return self.activation_func(s)
+        return self.evaluation_activation_func(s)
     
     def train(self, x: np.ndarray, d: np.ndarray, epochs: int = 100, 
               variable_lr: bool = False, eta_min: float = 0.01, eta_max: float = 0.1) -> list:
@@ -204,15 +232,31 @@ class Neuron:
                 # Compute weighted sum: s = w^T * x_j
                 s = np.dot(self.weights, x_j_with_bias)
                 
-                # Compute output: y = f(s)
-                y = self.activation_func(s)
+                # Compute output: y = f(s) using training activation function
+                y = self.training_activation_func(s)
+                
+                # Normalize output to [0, 1] range for SIN and TANH
+                # These functions output [-1, 1], but expected values d are [0, 1]
+                if self.training_activation == ActivationFunction.SIN:
+                    # Normalize sin output: [-1, 1] -> [0, 1]
+                    y = (y + 1.0) / 2.0
+                elif self.training_activation == ActivationFunction.TANH:
+                    # Normalize tanh output: [-1, 1] -> [0, 1]
+                    y = (y + 1.0) / 2.0
                 
                 # Compute error: ε = d - y
                 error = d_j - y
                 total_error += error ** 2
                 
-                # Compute derivative: f'(s)
-                f_prime = self.activation_derivative(s)
+                # Compute derivative: f'(s) using training activation derivative
+                f_prime = self.training_activation_derivative(s)
+                
+                # For SIN and TANH, we normalized the output, so we need to normalize the derivative too
+                # If y_normalized = (y + 1) / 2, then d/ds y_normalized = f'(s) / 2
+                if self.training_activation == ActivationFunction.SIN:
+                    f_prime = f_prime / 2.0
+                elif self.training_activation == ActivationFunction.TANH:
+                    f_prime = f_prime / 2.0
                 
                 # Update weights: Δw_j = η * ε * f'(s) * x_j
                 delta_w = eta * error * f_prime * x_j_with_bias
@@ -222,17 +266,79 @@ class Neuron:
         
         return errors_per_epoch
     
+    def get_decision_boundary_threshold(self) -> float:
+        """
+        Get the threshold value in the activation function output space
+        that corresponds to the decision boundary.
+        Uses evaluation activation function for visualization.
+        
+        Returns:
+            Threshold value in the output space of the activation function
+        """
+        if self.evaluation_activation == ActivationFunction.HEAVISIDE:
+            return 0.5
+        elif self.evaluation_activation == ActivationFunction.SIGMOID:
+            return 0.5
+        elif self.evaluation_activation == ActivationFunction.TANH:
+            return 0.0
+        elif self.evaluation_activation == ActivationFunction.SIN:
+            return 0.0
+        elif self.evaluation_activation == ActivationFunction.SIGN:
+            return 0.0
+        elif self.evaluation_activation == ActivationFunction.RELU:
+            return 0.0
+        elif self.evaluation_activation == ActivationFunction.LEAKY_RELU:
+            return 0.0
+        else:
+            return 0.5
+    
     def get_decision_boundary_params(self) -> Tuple[float, float, float]:
         """
         Get parameters for decision boundary visualization.
-        For 2D input: w0 + w1*x + w2*y = 0
-        Returns: (a, b, c) where ax + by + c = 0
+        For a single neuron, the decision boundary is always linear.
+        
+        The decision boundary is where: f(w0 + w1*x + w2*y) = threshold
+        For monotonic activation functions, this becomes: w0 + w1*x + w2*y = f^(-1)(threshold)
+        
+        Returns: (a, b, c) where ax + by + c = 0 represents the decision boundary
         """
         if len(self.weights) != 3:
             raise ValueError("Decision boundary visualization only works for 2D inputs")
         
-        # w0 (bias) + w1*x + w2*y = 0
-        # Rearranged: w2*y = -w0 - w1*x
-        # y = (-w0 - w1*x) / w2
-        # Or in form: w1*x + w2*y + w0 = 0
-        return (self.weights[1], self.weights[2], self.weights[0])
+        threshold_output = self.get_decision_boundary_threshold()
+        
+        # For most activation functions, we need to find the input value s
+        # such that f(s) = threshold_output
+        # Then the boundary is: w0 + w1*x + w2*y = s
+        
+        # Calculate s (the input to activation function at the boundary)
+        # Use evaluation activation for visualization
+        if self.evaluation_activation == ActivationFunction.HEAVISIDE:
+            # f(s) = 0.5 when s = 0
+            s_threshold = 0.0
+        elif self.evaluation_activation == ActivationFunction.SIGMOID:
+            # f(s) = 0.5 when s = 0 (for beta=1, or s = -ln(1/threshold - 1) / beta)
+            # For threshold = 0.5: s = 0
+            s_threshold = 0.0
+        elif self.evaluation_activation == ActivationFunction.TANH:
+            # f(s) = 0 when s = 0
+            s_threshold = 0.0
+        elif self.evaluation_activation == ActivationFunction.SIN:
+            # f(s) = 0 when s = 0 (or s = k*pi, but we use 0)
+            s_threshold = 0.0
+        elif self.evaluation_activation == ActivationFunction.SIGN:
+            # f(s) = 0 when s = 0
+            s_threshold = 0.0
+        elif self.evaluation_activation == ActivationFunction.RELU:
+            # f(s) = 0 when s = 0
+            s_threshold = 0.0
+        elif self.evaluation_activation == ActivationFunction.LEAKY_RELU:
+            # f(s) = 0 when s = 0
+            s_threshold = 0.0
+        else:
+            s_threshold = 0.0
+        
+        # The decision boundary equation: w0 + w1*x + w2*y = s_threshold
+        # Rearranged: w1*x + w2*y + (w0 - s_threshold) = 0
+        # So: a = w1, b = w2, c = w0 - s_threshold
+        return (self.weights[1], self.weights[2], self.weights[0] - s_threshold)

@@ -1,0 +1,58 @@
+===========================================
+KOMENDY DO URUCHOMIENIA - Windows CMD
+===========================================
+
+1. Przejdź do folderu:
+cd C:\Users\kopcz\Documents\GitHub\Artificial-Intelligence-Fundamentals-Laboratory\4.6_Convolutional_Neural_Network
+
+2. Stwórz venv:
+python -m venv venv
+
+3. Aktywuj venv:
+venv\Scripts\activate.bat
+
+4. Zainstaluj zależności:
+pip install -r requirements.txt
+
+5. Trenuj sieć:
+python train_cnn.py
+
+===========================================
+KOMENDY DO URUCHOMIENIA - Windows PowerShell
+===========================================
+
+1. Przejdź do folderu:
+cd C:\Users\kopcz\Documents\GitHub\Artificial-Intelligence-Fundamentals-Laboratory\4.6_Convolutional_Neural_Network
+
+2. Stwórz venv:
+python -m venv venv
+
+3. Aktywuj venv:
+.\venv\Scripts\Activate.ps1
+
+4. Zainstaluj zależności:
+pip install -r requirements.txt
+
+5. Trenuj sieć:
+python train_cnn.py
+
+===========================================
+UWAGI:
+===========================================
+
+- Po aktywacji venv zobaczysz (venv) na początku linii
+- Pierwsze uruchomienie pobierze zbiór MNIST (może zająć kilka minut)
+- Jeśli w PowerShell dostaniesz błąd ExecutionPolicy, uruchom:
+  Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+===========================================
+SZYBKI START (CMD - kopiuj wszystkie):
+===========================================
+
+cd C:\Users\kopcz\Documents\GitHub\Artificial-Intelligence-Fundamentals-Laboratory\4.6_Convolutional_Neural_Network
+python -m venv venv
+venv\Scripts\activate.bat
+pip install -r requirements.txt
+python train_cnn.py
+
+===========================================

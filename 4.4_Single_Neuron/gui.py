@@ -1,292 +1,546 @@
 """
-GUI application for training and visualizing a single neuron.
+Streamlit GUI application for training and visualizing a single neuron.
 Includes data generation, training, and decision boundary visualization.
 """
 
-import tkinter as tk
-from tkinter import ttk, messagebox
+import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.figure import Figure
 from typing import Optional, Tuple
+import logging
 
 from neuron import Neuron, ActivationFunction
 from data_generator import DataGenerator
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
-class NeuronGUI:
-    """GUI application for neuron training and visualization."""
-    
-    def __init__(self, root: tk.Tk):
-        """Initialize the GUI."""
-        self.root = root
-        self.root.title("Single Neuron Training and Visualization")
-        self.root.geometry("1200x800")
-        
-        # Data storage
-        self.samples: Optional[np.ndarray] = None
-        self.labels: Optional[np.ndarray] = None
-        self.neuron: Optional[Neuron] = None
-        self.training_history: list = []
-        
-        # Data generator
-        self.data_generator = DataGenerator()
-        
-        # Create GUI elements
-        self._create_widgets()
-        
-        # Initialize plot
-        self._update_plot()
-    
-    def _create_widgets(self):
-        """Create all GUI widgets."""
-        # Main container
-        main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        
-        # Left panel - Controls
-        control_frame = ttk.LabelFrame(main_frame, text="Controls", padding="10")
-        control_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5, pady=5)
-        
-        # Data generation section
-        data_frame = ttk.LabelFrame(control_frame, text="Data Generation", padding="5")
-        data_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
-        
-        ttk.Label(data_frame, text="Modes Class 0:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        self.modes_class0_var = tk.IntVar(value=1)
-        ttk.Spinbox(data_frame, from_=1, to=10, textvariable=self.modes_class0_var, width=10).grid(row=0, column=1, pady=2)
-        
-        ttk.Label(data_frame, text="Samples/Mode Class 0:").grid(row=1, column=0, sticky=tk.W, pady=2)
-        self.samples_mode0_var = tk.IntVar(value=50)
-        ttk.Spinbox(data_frame, from_=10, to=500, textvariable=self.samples_mode0_var, width=10).grid(row=1, column=1, pady=2)
-        
-        ttk.Label(data_frame, text="Modes Class 1:").grid(row=2, column=0, sticky=tk.W, pady=2)
-        self.modes_class1_var = tk.IntVar(value=1)
-        ttk.Spinbox(data_frame, from_=1, to=10, textvariable=self.modes_class1_var, width=10).grid(row=2, column=1, pady=2)
-        
-        ttk.Label(data_frame, text="Samples/Mode Class 1:").grid(row=3, column=0, sticky=tk.W, pady=2)
-        self.samples_mode1_var = tk.IntVar(value=50)
-        ttk.Spinbox(data_frame, from_=10, to=500, textvariable=self.samples_mode1_var, width=10).grid(row=3, column=1, pady=2)
-        
-        ttk.Button(data_frame, text="Generate Data", command=self._generate_data).grid(row=4, column=0, columnspan=2, pady=5)
-        
-        # Neuron configuration section
-        neuron_frame = ttk.LabelFrame(control_frame, text="Neuron Configuration", padding="5")
-        neuron_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
-        
-        ttk.Label(neuron_frame, text="Activation Function:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        self.activation_var = tk.StringVar(value="sigmoid")
-        activation_combo = ttk.Combobox(neuron_frame, textvariable=self.activation_var, 
-                                       values=["heaviside", "sigmoid", "sin", "tanh", "sign", "relu", "leaky_relu"],
-                                       state="readonly", width=15)
-        activation_combo.grid(row=0, column=1, pady=2)
-        
-        ttk.Label(neuron_frame, text="Learning Rate:").grid(row=1, column=0, sticky=tk.W, pady=2)
-        self.lr_var = tk.DoubleVar(value=0.1)
-        ttk.Spinbox(neuron_frame, from_=0.001, to=1.0, increment=0.01, textvariable=self.lr_var, width=10).grid(row=1, column=1, pady=2)
-        
-        ttk.Label(neuron_frame, text="Beta (for sigmoid):").grid(row=2, column=0, sticky=tk.W, pady=2)
-        self.beta_var = tk.DoubleVar(value=1.0)
-        ttk.Spinbox(neuron_frame, from_=0.1, to=10.0, increment=0.1, textvariable=self.beta_var, width=10).grid(row=2, column=1, pady=2)
-        
-        ttk.Button(neuron_frame, text="Initialize Neuron", command=self._initialize_neuron).grid(row=3, column=0, columnspan=2, pady=5)
-        
-        # Training section
-        training_frame = ttk.LabelFrame(control_frame, text="Training", padding="5")
-        training_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
-        
-        ttk.Label(training_frame, text="Epochs:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        self.epochs_var = tk.IntVar(value=100)
-        ttk.Spinbox(training_frame, from_=1, to=1000, textvariable=self.epochs_var, width=10).grid(row=0, column=1, pady=2)
-        
-        self.variable_lr_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(training_frame, text="Variable Learning Rate", variable=self.variable_lr_var).grid(row=1, column=0, columnspan=2, pady=2)
-        
-        ttk.Label(training_frame, text="η min:").grid(row=2, column=0, sticky=tk.W, pady=2)
-        self.eta_min_var = tk.DoubleVar(value=0.01)
-        ttk.Spinbox(training_frame, from_=0.001, to=0.1, increment=0.001, textvariable=self.eta_min_var, width=10).grid(row=2, column=1, pady=2)
-        
-        ttk.Label(training_frame, text="η max:").grid(row=3, column=0, sticky=tk.W, pady=2)
-        self.eta_max_var = tk.DoubleVar(value=0.1)
-        ttk.Spinbox(training_frame, from_=0.01, to=1.0, increment=0.01, textvariable=self.eta_max_var, width=10).grid(row=3, column=1, pady=2)
-        
-        ttk.Button(training_frame, text="Train Neuron", command=self._train_neuron).grid(row=4, column=0, columnspan=2, pady=5)
-        
-        # Status section
-        status_frame = ttk.LabelFrame(control_frame, text="Status", padding="5")
-        status_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
-        
-        self.status_label = ttk.Label(status_frame, text="Ready", wraplength=200)
-        self.status_label.grid(row=0, column=0, sticky=tk.W)
-        
-        # Right panel - Plot
-        plot_frame = ttk.Frame(main_frame, padding="5")
-        plot_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S))
-        
-        # Matplotlib figure
-        self.fig = Figure(figsize=(8, 6), dpi=100)
-        self.ax = self.fig.add_subplot(111)
-        self.canvas = FigureCanvasTkAgg(self.fig, plot_frame)
-        self.canvas.get_tk_widget().grid(row=0, column=0)
-        
-        # Configure grid weights
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(0, weight=1)
-        control_frame.columnconfigure(1, weight=1)
-    
-    def _generate_data(self):
-        """Generate new data samples."""
-        try:
-            n_modes0 = self.modes_class0_var.get()
-            n_samples0 = self.samples_mode0_var.get()
-            n_modes1 = self.modes_class1_var.get()
-            n_samples1 = self.samples_mode1_var.get()
-            
-            self.samples, self.labels = self.data_generator.generate_two_class_data(
-                n_modes0, n_samples0, n_modes1, n_samples1
-            )
-            
-            self.status_label.config(text=f"Generated {len(self.samples)} samples")
-            self._update_plot()
-            
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to generate data: {str(e)}")
-    
-    def _initialize_neuron(self):
-        """Initialize a new neuron with specified parameters."""
-        try:
-            activation_name = self.activation_var.get()
-            activation = ActivationFunction(activation_name)
-            learning_rate = self.lr_var.get()
-            beta = self.beta_var.get()
-            
-            # Neuron needs 2 inputs for 2D data
-            self.neuron = Neuron(input_dim=2, activation=activation, 
-                                learning_rate=learning_rate, beta=beta)
-            
-            self.status_label.config(text=f"Neuron initialized with {activation_name}")
-            self._update_plot()
-            
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to initialize neuron: {str(e)}")
-    
-    def _train_neuron(self):
-        """Train the neuron on the generated data."""
-        if self.neuron is None:
-            messagebox.showwarning("Warning", "Please initialize neuron first")
-            return
-        
-        if self.samples is None or self.labels is None:
-            messagebox.showwarning("Warning", "Please generate data first")
-            return
-        
-        try:
-            epochs = self.epochs_var.get()
-            variable_lr = self.variable_lr_var.get()
-            eta_min = self.eta_min_var.get()
-            eta_max = self.eta_max_var.get()
-            
-            self.training_history = self.neuron.train(
-                self.samples, self.labels, epochs=epochs,
-                variable_lr=variable_lr, eta_min=eta_min, eta_max=eta_max
-            )
-            
-            self.status_label.config(text=f"Training completed. Final error: {self.training_history[-1]:.4f}")
-            self._update_plot()
-            
-        except Exception as e:
-            messagebox.showerror("Error", f"Training failed: {str(e)}")
-    
-    def _update_plot(self):
-        """Update the visualization plot."""
-        self.ax.clear()
-        
-        # Plot data samples if available
-        if self.samples is not None and self.labels is not None:
-            # Class 0 samples (blue)
-            class0_mask = self.labels == 0
-            if np.any(class0_mask):
-                self.ax.scatter(self.samples[class0_mask, 0], self.samples[class0_mask, 1],
-                              c='blue', marker='o', label='Class 0', alpha=0.6, s=30)
-            
-            # Class 1 samples (red)
-            class1_mask = self.labels == 1
-            if np.any(class1_mask):
-                self.ax.scatter(self.samples[class1_mask, 0], self.samples[class1_mask, 1],
-                              c='red', marker='x', label='Class 1', alpha=0.6, s=30)
-        
-        # Plot decision boundary if neuron is trained
-        if self.neuron is not None:
+
+def plot_data_and_boundary(
+    samples: np.ndarray, labels: np.ndarray, neuron: Optional[Neuron] = None
+) -> plt.Figure:
+    """
+    Plot data samples and decision boundary.
+
+    Args:
+        samples: Input samples (n_samples, 2)
+        labels: Class labels (n_samples,)
+        neuron: Optional neuron for decision boundary visualization
+
+    Returns:
+        matplotlib Figure object
+    """
+    fig, ax = plt.subplots(figsize=(6, 5), dpi=80)
+
+    # Plot data samples
+    class0_mask = labels == 0
+    class1_mask = labels == 1
+
+    if np.any(class0_mask):
+        ax.scatter(
+            samples[class0_mask, 0],
+            samples[class0_mask, 1],
+            c="blue",
+            marker="o",
+            label="Class 0",
+            alpha=0.7,
+            s=20,
+            edgecolors="darkblue",
+            linewidths=0.5,
+        )
+
+    if np.any(class1_mask):
+        ax.scatter(
+            samples[class1_mask, 0],
+            samples[class1_mask, 1],
+            c="red",
+            marker="x",
+            label="Class 1",
+            alpha=0.7,
+            s=25,
+            linewidths=1.2,
+        )
+
+        # Plot decision boundary if neuron is available
+        if neuron is not None:
             try:
-                self._plot_decision_boundary()
+                _plot_decision_boundary(ax, samples, neuron)
             except Exception as e:
-                # If decision boundary plotting fails, continue without it
-                pass
-        
-        self.ax.set_xlabel("X")
-        self.ax.set_ylabel("Y")
-        self.ax.set_title("Neuron Training Visualization")
-        self.ax.legend()
-        self.ax.grid(True, alpha=0.3)
-        self.ax.set_aspect('equal', adjustable='box')
-        
-        self.canvas.draw()
-    
-    def _plot_decision_boundary(self):
-        """Plot the decision boundary of the neuron."""
-        if self.samples is None:
-            return
-        
-        # Get the range of data
-        x_min, x_max = self.samples[:, 0].min() - 0.5, self.samples[:, 0].max() + 0.5
-        y_min, y_max = self.samples[:, 1].min() - 0.5, self.samples[:, 1].max() + 0.5
-        
-        # Create a mesh for background coloring
-        xx, yy = np.meshgrid(np.linspace(x_min, x_max, 200),
-                           np.linspace(y_min, y_max, 200))
-        grid_points = np.c_[xx.ravel(), yy.ravel()]
-        
-        # Get continuous outputs for the grid (for better visualization)
-        outputs = self.neuron.evaluate(grid_points)
-        outputs = outputs.reshape(xx.shape)
-        
-        # For classification, threshold at 0.5
-        # But use continuous values for smoother visualization
-        predictions = (outputs >= 0.5).astype(float)
-        
-        # Plot background with two colors for two half-planes
-        self.ax.contourf(xx, yy, predictions, levels=[0, 0.5, 1], 
-                        colors=['lightblue', 'lightcoral'], alpha=0.3)
-        
-        # Plot decision boundary line
-        try:
-            a, b, c = self.neuron.get_decision_boundary_params()
-            # Decision boundary: a*x + b*y + c = 0
-            # Rearrange: y = (-a*x - c) / b
-            if abs(b) > 1e-10:
-                x_line = np.linspace(x_min, x_max, 100)
-                y_line = (-a * x_line - c) / b
-                # Filter y values within plot range
-                mask = (y_line >= y_min) & (y_line <= y_max)
-                if np.any(mask):
-                    self.ax.plot(x_line[mask], y_line[mask], 'k--', linewidth=2, label='Decision Boundary')
-            else:
-                # Vertical line: x = -c/a
-                x_line = -c / a if abs(a) > 1e-10 else 0
-                self.ax.axvline(x=x_line, color='k', linestyle='--', linewidth=2, label='Decision Boundary')
-        except:
-            # If boundary calculation fails, just show the background
-            pass
+                logger.warning(f"Error plotting decision boundary: {e}")
+
+    # Set labels and title
+    ax.set_xlabel("X", fontsize=9)
+    ax.set_ylabel("Y", fontsize=9)
+
+    if neuron is not None:
+        activation_name = neuron.evaluation_activation.value
+        title = f"Neuron Visualization - {activation_name.capitalize()}"
+    else:
+        title = "Neuron Visualization - No neuron initialized"
+
+    ax.set_title(title, fontsize=10, fontweight="bold")
+    ax.legend(loc="upper right", fontsize=8)
+    ax.grid(True, alpha=0.3, linestyle="--")
+    ax.set_aspect("equal", adjustable="box")
+
+    # Tight layout to reduce padding
+    plt.tight_layout()
+
+    return fig
+
+
+def _plot_decision_boundary(ax, samples: np.ndarray, neuron: Neuron):
+    """
+    Plot the decision boundary of the neuron.
+
+    Args:
+        ax: matplotlib axes object
+        samples: Input samples for determining plot range
+        neuron: Neuron object
+    """
+    # Get the range of data
+    x_min, x_max = samples[:, 0].min() - 0.5, samples[:, 0].max() + 0.5
+    y_min, y_max = samples[:, 1].min() - 0.5, samples[:, 1].max() + 0.5
+
+    # Create a mesh for background coloring (reduced resolution for smaller file size)
+    resolution = 100
+    xx, yy = np.meshgrid(
+        np.linspace(x_min, x_max, resolution), np.linspace(y_min, y_max, resolution)
+    )
+    grid_points = np.c_[xx.ravel(), yy.ravel()]
+
+    # Get continuous outputs for the grid
+    outputs = neuron.evaluate(grid_points)
+    outputs = outputs.reshape(xx.shape)
+
+    # Determine threshold based on evaluation activation function
+    if neuron.evaluation_activation == ActivationFunction.HEAVISIDE:
+        threshold = 0.5
+    elif neuron.evaluation_activation == ActivationFunction.SIGMOID:
+        threshold = 0.5
+    elif neuron.evaluation_activation == ActivationFunction.TANH:
+        threshold = 0.0
+    elif neuron.evaluation_activation == ActivationFunction.SIN:
+        threshold = 0.0
+    elif neuron.evaluation_activation == ActivationFunction.SIGN:
+        threshold = 0.0
+    elif neuron.evaluation_activation == ActivationFunction.RELU:
+        threshold = 0.0
+    elif neuron.evaluation_activation == ActivationFunction.LEAKY_RELU:
+        threshold = 0.0
+    else:
+        threshold = 0.5
+
+    # Create predictions for background coloring
+    predictions = (outputs >= threshold).astype(float)
+
+    # Plot background with two colors for two half-planes
+    ax.contourf(
+        xx,
+        yy,
+        predictions,
+        levels=[0, 0.5, 1],
+        colors=["#E3F2FD", "#FFEBEE"],
+        alpha=0.4,
+    )
+
+    # Plot decision boundary line
+    # For a single neuron, the decision boundary is always linear
+    try:
+        a, b, c = neuron.get_decision_boundary_params()
+        # Decision boundary: a*x + b*y + c = 0
+        # Rearrange: y = (-a*x - c) / b
+        if abs(b) > 1e-10:
+            x_line = np.linspace(x_min, x_max, 200)
+            y_line = (-a * x_line - c) / b
+            # Filter y values within plot range
+            mask = (y_line >= y_min) & (y_line <= y_max)
+            if np.any(mask):
+                ax.plot(
+                    x_line[mask],
+                    y_line[mask],
+                    "k-",
+                    linewidth=2,
+                    label="Decision Boundary",
+                    alpha=0.8,
+                )
+        else:
+            # Vertical line: x = -c/a
+            if abs(a) > 1e-10:
+                x_line = -c / a
+                ax.axvline(
+                    x=x_line,
+                    color="k",
+                    linestyle="-",
+                    linewidth=2,
+                    label="Decision Boundary",
+                    alpha=0.8,
+                )
+    except Exception as e:
+        logger.warning(f"Could not plot decision boundary: {e}")
+
+
+def plot_training_error(training_history: list) -> plt.Figure:
+    """
+    Plot training error over time.
+
+    Args:
+        training_history: List of errors per epoch
+
+    Returns:
+        matplotlib Figure object
+    """
+    fig, ax = plt.subplots(figsize=(6, 4.5), dpi=80)
+
+    if training_history and len(training_history) > 0:
+        epochs = range(1, len(training_history) + 1)
+        ax.plot(epochs, training_history, "b-", linewidth=1.5, label="MSE")
+        ax.set_xlabel("Epoch", fontsize=9)
+        ax.set_ylabel("Mean Squared Error", fontsize=9)
+        ax.set_title("Training Error Over Time", fontsize=10, fontweight="bold")
+        ax.legend(loc="upper right", fontsize=8)
+        ax.grid(True, alpha=0.3, linestyle="--")
+
+        # Add annotation for final error
+        final_error = training_history[-1]
+        initial_error = training_history[0]
+        ax.annotate(
+            f"Final: {final_error:.4f}",
+            xy=(len(training_history), final_error),
+            xytext=(10, 10),
+            textcoords="offset points",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.7),
+            fontsize=8,
+        )
+
+        # Add initial error annotation
+        ax.annotate(
+            f"Initial: {initial_error:.4f}",
+            xy=(1, initial_error),
+            xytext=(10, -20),
+            textcoords="offset points",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgreen", alpha=0.7),
+            fontsize=8,
+        )
+    else:
+        ax.text(
+            0.5,
+            0.5,
+            "No training data available.\nTrain the neuron to see error plot.",
+            horizontalalignment="center",
+            verticalalignment="center",
+            transform=ax.transAxes,
+            fontsize=9,
+        )
+        ax.set_xlabel("Epoch", fontsize=9)
+        ax.set_ylabel("Mean Squared Error", fontsize=9)
+        ax.set_title("Training Error Over Time", fontsize=10, fontweight="bold")
+
+    # Tight layout to reduce padding
+    plt.tight_layout()
+
+    return fig
 
 
 def main():
-    """Main function to run the GUI application."""
-    root = tk.Tk()
-    app = NeuronGUI(root)
-    root.mainloop()
+    """Main Streamlit application."""
+    st.set_page_config(page_title="Single Neuron Training", layout="centered")
+    st.title("Single Neuron Training and Visualization")
+
+    # Initialize session state
+    if "samples" not in st.session_state:
+        st.session_state.samples = None
+        st.session_state.labels = None
+        st.session_state.neuron = None
+        st.session_state.training_history = []
+        st.session_state.data_generator = DataGenerator()
+
+    # Sidebar for controls
+    with st.sidebar:
+        st.header("Data Generation")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            modes_class0 = st.number_input(
+                "Modes Class 0", min_value=1, max_value=10, value=1, step=1
+            )
+            samples_mode0 = st.number_input(
+                "Samples/Mode Class 0", min_value=10, max_value=500, value=50, step=10
+            )
+
+        with col2:
+            modes_class1 = st.number_input(
+                "Modes Class 1", min_value=1, max_value=10, value=1, step=1
+            )
+            samples_mode1 = st.number_input(
+                "Samples/Mode Class 1", min_value=10, max_value=500, value=50, step=10
+            )
+
+        if st.button("Generate Data", type="primary", use_container_width=True):
+            try:
+                # Validate inputs
+                if modes_class0 < 1 or modes_class1 < 1:
+                    st.error("Number of modes must be at least 1")
+                elif samples_mode0 < 10 or samples_mode1 < 10:
+                    st.error("Number of samples per mode must be at least 10")
+                else:
+                    st.session_state.samples, st.session_state.labels = (
+                        st.session_state.data_generator.generate_two_class_data(
+                            modes_class0, samples_mode0, modes_class1, samples_mode1
+                        )
+                    )
+                    total_samples = len(st.session_state.samples)
+                    class0_count = np.sum(st.session_state.labels == 0)
+                    class1_count = np.sum(st.session_state.labels == 1)
+                    st.success(
+                        f"Generated {total_samples} samples (Class 0: {class0_count}, Class 1: {class1_count})"
+                    )
+                    st.session_state.neuron = (
+                        None  # Reset neuron when new data is generated
+                    )
+                    st.session_state.training_history = []
+                    logger.info(f"Data generated: {total_samples} samples")
+            except ValueError as e:
+                logger.error(f"Validation error in data generation: {e}")
+                st.error(f"Invalid input parameters: {str(e)}")
+            except Exception as e:
+                logger.exception("Error generating data")
+                st.error(f"Failed to generate data: {str(e)}")
+
+        st.divider()
+
+        st.header("Neuron Configuration")
+
+        training_activation_name = st.selectbox(
+            "Training Activation Function",
+            options=["heaviside", "sigmoid", "sin", "tanh"],
+            index=1,
+            help="Activation function used during training. Only Heaviside, Sigmoid, Sin, and Tanh are supported for training.",
+        )
+
+        evaluation_activation_name = st.selectbox(
+            "Evaluation Activation Function",
+            options=[
+                "heaviside",
+                "sigmoid",
+                "sin",
+                "tanh",
+                "sign",
+                "relu",
+                "leaky_relu",
+            ],
+            index=1,
+            help="Activation function used for evaluation and prediction. All functions are supported.",
+        )
+
+        learning_rate = st.slider(
+            "Learning Rate (η)",
+            min_value=0.001,
+            max_value=1.0,
+            value=0.1,
+            step=0.01,
+            format="%.3f",
+        )
+
+        beta = st.slider(
+            "Beta (for sigmoid)",
+            min_value=0.1,
+            max_value=10.0,
+            value=1.0,
+            step=0.1,
+            format="%.1f",
+        )
+
+        if st.button("Initialize Neuron", type="primary", use_container_width=True):
+            try:
+                # Validate parameters
+                if learning_rate <= 0 or learning_rate > 1.0:
+                    st.error("Learning rate must be between 0.001 and 1.0")
+                elif beta <= 0 or beta > 10.0:
+                    st.error("Beta must be between 0.1 and 10.0")
+                else:
+                    training_activation = ActivationFunction(training_activation_name)
+                    evaluation_activation = ActivationFunction(
+                        evaluation_activation_name
+                    )
+                    st.session_state.neuron = Neuron(
+                        input_dim=2,
+                        training_activation=training_activation,
+                        evaluation_activation=evaluation_activation,
+                        learning_rate=learning_rate,
+                        beta=beta,
+                    )
+                    st.session_state.training_history = []
+                    st.success(
+                        f"Neuron initialized: Training={training_activation_name}, Evaluation={evaluation_activation_name} (LR={learning_rate:.3f}, beta={beta:.1f})"
+                    )
+                    logger.info(
+                        f"Neuron initialized: Training={training_activation_name}, Evaluation={evaluation_activation_name}, LR={learning_rate}, beta={beta}"
+                    )
+            except ValueError as e:
+                logger.error(f"Validation error in neuron initialization: {e}")
+                st.error(f"Invalid parameters: {str(e)}")
+            except Exception as e:
+                logger.exception("Error initializing neuron")
+                st.error(f"Failed to initialize neuron: {str(e)}")
+
+        st.divider()
+
+        st.header("Training")
+
+        epochs = st.number_input(
+            "Epochs", min_value=1, max_value=1000, value=100, step=10
+        )
+
+        reset_weights = st.checkbox(
+            "Reset weights before training",
+            value=False,
+            help="If checked, weights will be reset to random values before training. Otherwise, training continues from current weights.",
+        )
+
+        variable_lr = st.checkbox("Variable Learning Rate", value=False)
+
+        if variable_lr:
+            col1, col2 = st.columns(2)
+            with col1:
+                eta_min = st.number_input(
+                    "η min",
+                    min_value=0.001,
+                    max_value=0.1,
+                    value=0.01,
+                    step=0.001,
+                    format="%.3f",
+                )
+            with col2:
+                eta_max = st.number_input(
+                    "η max",
+                    min_value=0.01,
+                    max_value=1.0,
+                    value=0.1,
+                    step=0.01,
+                    format="%.2f",
+                )
+        else:
+            eta_min = 0.01
+            eta_max = 0.1
+
+        if st.button("Train Neuron", type="primary", use_container_width=True):
+            # Validation
+            if st.session_state.neuron is None:
+                st.warning("Please initialize neuron first")
+            elif st.session_state.samples is None or st.session_state.labels is None:
+                st.warning("Please generate data first")
+            elif len(st.session_state.samples) == 0:
+                st.warning("No data samples available")
+            else:
+                try:
+                    # Validate training parameters
+                    if epochs < 1 or epochs > 1000:
+                        st.error("Epochs must be between 1 and 1000")
+                    elif variable_lr and (
+                        eta_min >= eta_max or eta_min <= 0 or eta_max <= 0
+                    ):
+                        st.error(
+                            "Eta min must be less than eta max and both must be positive"
+                        )
+                    elif st.session_state.samples.shape[1] != 2:
+                        st.error("Data must be 2D for visualization")
+                    elif len(st.session_state.labels) != len(st.session_state.samples):
+                        st.error("Number of labels does not match number of samples")
+                    else:
+                        # Reset weights if requested
+                        if reset_weights:
+                            st.session_state.neuron.reset_weights()
+                            logger.info("Weights reset before training")
+
+                        with st.spinner("Training in progress..."):
+                            logger.info(
+                                f"Starting training: {epochs} epochs, variable_lr={variable_lr}, reset_weights={reset_weights}"
+                            )
+                            st.session_state.training_history = (
+                                st.session_state.neuron.train(
+                                    st.session_state.samples,
+                                    st.session_state.labels,
+                                    epochs=epochs,
+                                    variable_lr=variable_lr,
+                                    eta_min=eta_min,
+                                    eta_max=eta_max,
+                                )
+                            )
+
+                        initial_error = (
+                            st.session_state.training_history[0]
+                            if st.session_state.training_history
+                            else 0
+                        )
+                        final_error = (
+                            st.session_state.training_history[-1]
+                            if st.session_state.training_history
+                            else 0
+                        )
+                        st.success(
+                            f"Training completed! Error: {initial_error:.4f} -> {final_error:.4f}"
+                        )
+                        logger.info(
+                            f"Training completed. Initial error: {initial_error:.4f}, Final error: {final_error:.4f}"
+                        )
+                except ValueError as e:
+                    logger.error(f"Validation error in training: {e}")
+                    st.error(f"Invalid parameters: {str(e)}")
+                except Exception as e:
+                    logger.exception("Error during training")
+                    st.error(f"Training failed: {str(e)}")
+
+        # Status display
+        st.divider()
+        st.header("Status")
+        if st.session_state.samples is not None:
+            total_samples = len(st.session_state.samples)
+            class0_count = np.sum(st.session_state.labels == 0)
+            class1_count = np.sum(st.session_state.labels == 1)
+            st.info(
+                f"Data: {total_samples} samples (Class 0: {class0_count}, Class 1: {class1_count})"
+            )
+        if st.session_state.neuron is not None:
+            training_name = st.session_state.neuron.training_activation.value
+            evaluation_name = st.session_state.neuron.evaluation_activation.value
+            st.info(
+                f"Neuron: Training={training_name}, Eval={evaluation_name} (LR={st.session_state.neuron.learning_rate:.3f})"
+            )
+        if st.session_state.training_history:
+            final_error = st.session_state.training_history[-1]
+            initial_error = st.session_state.training_history[0]
+            st.info(
+                f"Training: Final Error = {final_error:.4f} (Initial: {initial_error:.4f})"
+            )
+
+    # Main area - Visualization
+    tab1, tab2 = st.tabs(["Visualization", "Training Error"])
+
+    with tab1:
+        st.header("Visualization")
+
+        if st.session_state.samples is not None and st.session_state.labels is not None:
+            fig = plot_data_and_boundary(
+                st.session_state.samples,
+                st.session_state.labels,
+                st.session_state.neuron,
+            )
+            st.pyplot(fig, use_container_width=False)
+        else:
+            st.info("Generate data to start visualization")
+
+    with tab2:
+        st.header("Training Error Over Time")
+
+        if st.session_state.training_history:
+            fig_error = plot_training_error(st.session_state.training_history)
+            st.pyplot(fig_error, use_container_width=False)
+        else:
+            st.info("Train the neuron to see error history")
 
 
 if __name__ == "__main__":
